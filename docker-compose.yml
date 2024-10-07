@@ -1,0 +1,228 @@
+version: '3.8'
+
+networks:
+  laravel_network:
+    driver: bridge
+
+volumes:
+  db_server1_data:
+    driver: local
+  db_server2_data:
+    driver: local
+  db_server3_data:
+    driver: local
+  db_server4_data:
+    driver: local
+
+services:
+  #Servidor PostgreSQL
+  db_server1:
+    image: postgres:13
+    container_name: db_server1
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: auth_db
+    ports:
+      - "5450:5432"
+    volumes:
+      - db_server1_data:/var/lib/postgresql/data
+    networks:
+      - laravel_network
+
+  # Servicio de MongoDB
+  db_server2:
+    image: mongo:latest
+    container_name: db_server2
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    volumes:
+      - db_server2_data:/data/db
+    networks:
+      - laravel_network
+    ports:
+      - "27020:27017"
+
+  # Servicio de MySQL
+  db_server3:
+    image: mysql:8.0
+    container_name: db_server3
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: order_db
+      MYSQL_PASSWORD: root
+    ports:
+      - "3311:3306"
+    volumes:
+      - db_server3_data:/var/lib/mysql
+    networks:
+      - laravel_network
+
+  #Mongo de Pedidos
+  db_server4:
+    image: mongo:latest
+    container_name: db_server4
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    volumes:
+      - db_server4_data:/data/db
+    networks:
+      - laravel_network
+    ports:
+      - "27021:27017"
+  # Servicio de Auth
+  auth-service:
+    build: 
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: unless-stopped
+    volumes:
+      - ./auth-service:/var/www/html
+    environment:
+      - APP_ENV=local
+      - APP_KEY=base64:zmfflK4898SAijpVS80SCDc/cpBeYUS69Vpv/PUw6e4=
+      - APP_DEBUG=false
+      - DB_CONNECTION=pgsql
+      - DB_HOST=db_server1
+      - DB_PORT=5432
+      - DB_DATABASE=auth_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root
+      - JWT_SECRET=aPmQwHryeIMHpPgKGGuBMRlEZ3KfQzinRE2ZdxzKNdPXvAeuUIkpcfvqrnjI2J0F
+    ports:
+      - "8888:80"
+    depends_on:
+      - db_server1
+    networks:
+      - laravel_network
+
+  # Servicio de Inventory
+  inventory-service:
+    build: 
+      context: ./inventory-service
+      dockerfile: Dockerfile
+    container_name: inventory-service
+    restart: unless-stopped
+    volumes:
+      - ./inventory-service:/var/www/html
+    environment:
+      - MONGO_URI=mongodb://root:root@db_server2:27017
+      - APP_ENV=local
+      - APP_KEY=base64:zmfflK4898SAijpVS80SCDc/cpBeYUS69Vpv/PUw6e4=
+      - APP_DEBUG=true
+      - JWT_SECRET=aPmQwHryeIMHpPgKGGuBMRlEZ3KfQzinRE2ZdxzKNdPXvAeuUIkpcfvqrnjI2J0F
+    ports:
+      - "8889:80"
+    depends_on:
+      - db_server2
+    networks:
+      - laravel_network
+
+  # Servicio de Email service
+  email-service:
+    build: 
+      context: ./email-service
+      dockerfile: Dockerfile
+    container_name: email-service
+    restart: unless-stopped
+    volumes:
+      - ./email-service:/var/www/html
+
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db_server3
+      - DB_PORT=3306
+      - DB_DATABASE=order_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root
+      - BROADCAST_DRIVER=log
+      - CACHE_DRIVER=file
+      - FILESYSTEM_DISK=local
+      - QUEUE_CONNECTION=database
+      - SESSION_DRIVER=file
+      - SESSION_LIFETIME=120
+      - APP_ENV=local
+      - APP_KEY=base64:zmfflK4898SAijpVS80SCDc/cpBeYUS69Vpv/PUw6e4=
+      - APP_DEBUG=true
+      - JWT_SECRET=aPmQwHryeIMHpPgKGGuBMRlEZ3KfQzinRE2ZdxzKNdPXvAeuUIkpcfvqrnjI2J0F
+    ports:
+      - "8879:80"
+    depends_on:
+      - db_server3
+    networks:
+      - laravel_network
+  
+  # Servicio de Order
+  order-service:
+    build: 
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    restart: unless-stopped
+    volumes:
+      - ./order-service:/var/www/html
+
+    environment:
+      - MONGO_URI=mongodb://root:root@db_server4:27017
+      - INVENTORY_SERVICE_URL=http://inventory-service
+      - EMAIL_SERVICE_URL=http://email-service
+      - BROADCAST_DRIVER=log
+      - CACHE_DRIVER=file
+      - FILESYSTEM_DISK=local
+      - QUEUE_CONNECTION=database
+      - SESSION_DRIVER=file
+      - SESSION_LIFETIME=120
+      - APP_ENV=local
+      - APP_KEY=base64:zmfflK4898SAijpVS80SCDc/cpBeYUS69Vpv/PUw6e4=
+      - APP_DEBUG=true
+      - JWT_SECRET=aPmQwHryeIMHpPgKGGuBMRlEZ3KfQzinRE2ZdxzKNdPXvAeuUIkpcfvqrnjI2J0F
+    ports:
+      - "8880:80"
+    depends_on:
+      - db_server4
+    networks:
+      - laravel_network
+  
+  # Servicio de APIGATEWAY
+  apigateway-service:
+    build: 
+      context: ./apigateway-service
+      dockerfile: Dockerfile
+    container_name: apigateway-service
+    restart: unless-stopped
+    volumes:
+      - ./apigateway-service:/var/www/html
+
+    environment:
+      - MONGO_URI=mongodb://root:root@db_server4:27017
+      - INVENTORY_SERVICE_URL=http://inventory-service
+      - EMAIL_SERVICE_URL=http://email-service
+      - PRODUCTS_SERVICE_URL=http://product-service
+      - AUTH_SERVICE_URL=http://auth-service
+      - BROADCAST_DRIVER=log
+      - CACHE_DRIVER=file
+      - FILESYSTEM_DISK=local
+      - QUEUE_CONNECTION=database
+      - SESSION_DRIVER=file
+      - SESSION_LIFETIME=120
+      - APP_ENV=local
+      - APP_KEY=base64:zmfflK4898SAijpVS80SCDc/cpBeYUS69Vpv/PUw6e4=
+      - APP_DEBUG=true
+      - JWT_SECRET=aPmQwHryeIMHpPgKGGuBMRlEZ3KfQzinRE2ZdxzKNdPXvAeuUIkpcfvqrnjI2J0F
+    ports:
+      - "8881:80"
+    depends_on:
+      - inventory-service
+      - auth-service
+      - order-service
+      - email-service
+    networks:
+      - laravel_network
+      
